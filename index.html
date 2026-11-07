@@ -1,37 +1,77 @@
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#101116">
-<title>MangaBox | مكتبة المانغا</title>
-<link rel="stylesheet" href="assets/css/style.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101116">
+  <meta name="description" content="اكتشف المانغا وابحث عنها واقرأ الفصول المتاحة عبر MangaDex.">
+  <title>MangaBox | مكتبة المانغا</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./style.css">
+  <script src="./app.js" defer></script>
 </head>
 <body>
-<header>
- <div class="logo">MANGA<span>BOX</span></div>
- <form class="search" id="searchForm"><input id="searchInput" placeholder="ابحث عن اسم المانغا..." autocomplete="off"><button>بحث</button></form>
- <button class="secondary" id="homeBtn">الرئيسية</button>
-</header>
-<main>
- <section class="hero"><h1>عالم المانغا بين يديك</h1><p>ابحث واكتشف الأعمال والفصول المتاحة عبر MangaDex. اختر مانغا لعرض معلوماتها وفصولها.</p></section>
- <section id="homeView">
-  <div class="toolbar"><h2 id="sectionTitle">الأكثر شعبية</h2><button class="secondary" id="popularBtn">الأكثر شعبية</button></div>
-  <div id="grid" class="grid"></div><div id="homeStatus" class="status">جارٍ تحميل المانغا...</div>
- </section>
- <section id="detailView" class="hidden">
-  <button class="secondary" id="backBtn">← العودة</button>
-  <div id="detailContent" class="panel"></div>
-  <div class="panel"><h3>الفصول</h3><div id="chapterList" class="chapterlist"></div><div id="chapterStatus" class="status"></div></div>
- </section>
- <section id="readerView" class="hidden">
-  <button class="secondary" id="readerBack">← العودة إلى الفصول</button>
-  <div class="readerbar"><button id="prevChapter" class="secondary">الفصل السابق</button><strong id="readerTitle">القارئ</strong><button id="nextChapter" class="secondary">الفصل التالي</button></div>
-  <div id="readerPages" class="reader"></div>
-  <div class="readerbar"><button id="readerTop">العودة للأعلى ↑</button></div>
-  <div id="readerStatus" class="status"></div>
- </section>
-</main>
-<footer>البيانات والفصول تُحمّل من MangaDex API. هذا الموقع واجهة مستقلة غير تابعة رسمياً لـ MangaDex.</footer>
-<script src="assets/js/app.js" defer></script>
-</body></html>
+  <header class="site-header">
+    <a class="logo" href="./" aria-label="MangaBox - الصفحة الرئيسية">MANGA<span>BOX</span></a>
+    <form class="search" id="searchForm" role="search">
+      <label class="visually-hidden" for="searchInput">ابحث عن اسم المانغا</label>
+      <input id="searchInput" type="search" placeholder="ابحث عن اسم المانغا..." autocomplete="off" required>
+      <button type="submit">بحث</button>
+    </form>
+    <nav class="header-actions" aria-label="التنقل الرئيسي">
+      <button class="secondary" id="homeBtn" type="button">الرئيسية</button>
+      <button class="secondary" id="favoritesBtn" type="button">المفضلة <span id="favoriteCount" class="count">0</span></button>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <p class="eyebrow">مكتبتك، أينما كنت</p>
+      <h1>عالم المانغا بين يديك</h1>
+      <p>اكتشف الأعمال وابحث عنها واقرأ الفصول العربية المتاحة عبر MangaDex.</p>
+    </section>
+
+    <section id="homeView" aria-labelledby="sectionTitle">
+      <div class="toolbar">
+        <h2 id="sectionTitle">الأكثر شعبية</h2>
+        <div class="toolbar-actions">
+          <button class="secondary" id="popularBtn" type="button">الأكثر شعبية</button>
+          <button class="secondary" id="retryBtn" type="button" hidden>إعادة المحاولة</button>
+        </div>
+      </div>
+      <div id="grid" class="grid" aria-live="polite"></div>
+      <div id="homeStatus" class="status" role="status">جارٍ تحميل المانغا...</div>
+      <nav id="pagination" class="pagination" aria-label="صفحات النتائج" hidden>
+        <button id="prevPage" class="secondary" type="button">السابق</button>
+        <span id="pageLabel"></span>
+        <button id="nextPage" class="secondary" type="button">التالي</button>
+      </nav>
+    </section>
+
+    <section id="detailView" class="hidden" aria-labelledby="detailHeading">
+      <button class="secondary back-button" id="backBtn" type="button">→ العودة</button>
+      <div id="detailContent" class="panel"></div>
+      <div class="panel">
+        <h2 class="panel-heading">الفصول العربية</h2>
+        <div id="chapterList" class="chapterlist"></div>
+        <div id="chapterStatus" class="status" role="status"></div>
+        <button id="moreChaptersBtn" class="secondary more-button" type="button" hidden>تحميل فصول إضافية</button>
+      </div>
+    </section>
+
+    <section id="readerView" class="hidden" aria-labelledby="readerTitle">
+      <button class="secondary back-button" id="readerBack" type="button">→ العودة إلى الفصول</button>
+      <div class="readerbar">
+        <button id="prevChapter" class="secondary" type="button">الفصل السابق</button>
+        <strong id="readerTitle">القارئ</strong>
+        <button id="nextChapter" class="secondary" type="button">الفصل التالي</button>
+      </div>
+      <div id="readerPages" class="reader" aria-live="polite"></div>
+      <div class="readerbar"><button id="readerTop" class="secondary" type="button">العودة للأعلى ↑</button></div>
+      <div id="readerStatus" class="status" role="status"></div>
+    </section>
+  </main>
+
+  <footer>البيانات والفصول تُحمّل من MangaDex API. هذا الموقع واجهة مستقلة غير تابعة رسمياً لـ MangaDex.</footer>
+</body>
+</html>
