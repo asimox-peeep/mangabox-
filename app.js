@@ -1,4 +1,4 @@
-const API = 'https://api.mangadex.org';
+const API = 'https://mangabox-api.lahrechriad9.workers.dev';
 const PAGE_SIZE = 24;
 const FAVORITES_KEY = 'mangabox-favorites-v1';
 
@@ -11,31 +11,17 @@ const readerView = $('readerView');
 const views = [homeView, detailView, readerView];
 
 const state = {
-  mode: 'popular',
-  query: '',
-  offset: 0,
-  page: 1,
-  chapters: [],
-  chapterOffset: 0,
-  currentChapterIndex: -1,
-  currentManga: null,
-  favorites: readFavorites(),
-  ratings: new Map(),
-  homeController: null,
-  detailController: null,
-  readerController: null,
-  listingToken: 0,
-  detailToken: 0,
-  readerToken: 0
+  mode: 'popular', query: '', offset: 0, page: 1, chapters: [], chapterOffset: 0,
+  currentChapterIndex: -1, currentManga: null, favorites: readFavorites(), ratings: new Map(),
+  homeController: null, detailController: null, readerController: null,
+  listingToken: 0, detailToken: 0, readerToken: 0
 };
 
 function readFavorites() {
   try {
     const parsed = JSON.parse(localStorage.getItem(FAVORITES_KEY) || '[]');
     return new Map(Array.isArray(parsed) ? parsed.filter((item) => item && item.id).map((item) => [item.id, item]) : []);
-  } catch {
-    return new Map();
-  }
+  } catch { return new Map(); }
 }
 
 function persistFavorites() {
@@ -70,10 +56,9 @@ function coverOf(manga, size = 256) {
   return `https://uploads.mangadex.org/covers/${encodeURIComponent(manga.id)}/${encodeURIComponent(filename)}.${size}.jpg`;
 }
 
-function coverFromSaved(item) {
-  return item.cover || '';
-}
+function coverFromSaved(item) { return item.cover || ''; }
 
+// The Worker proxies MangaDex API paths; preserve repeated query parameters such as includes[] and mangaId[].
 function makeApiUrl(path, params = {}) {
   const url = new URL(`${API}${path}`);
   Object.entries(params).forEach(([key, value]) => {
@@ -103,7 +88,11 @@ async function requestJson(url, signal) {
     signal?.addEventListener('abort', abort, { once: true });
     const timeout = setTimeout(() => controller.abort(), 20000);
     try {
-      const response = await fetch(url, { signal: controller.signal, mode: 'cors', headers: { Accept: 'application/json' } });
+      const response = await fetch(url, {
+        signal: controller.signal,
+        mode: 'cors',
+        headers: { Accept: 'application/json' }
+      });
       if (response.status === 429 && attempt === 0) {
         const retryAfter = Number(response.headers.get('Retry-After'));
         const delay = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter * 1000, 10000) : 1800;
@@ -114,20 +103,37 @@ async function requestJson(url, signal) {
         continue;
       }
       if (!response.ok) {
-        const error = new Error(`HTTP ${response.status}`);
+        let detail = '';
+        try { detail = (await response.text()).trim().slice(0, 240); } catch { /* Optional diagnostic response body. */ }
+        const error = new Error(`طلب ${new URL(url).pathname} عبر Cloudflare Worker فشل: HTTP ${response.status}${detail ? ` — ${detail}` : ''}`);
         error.status = response.status;
         throw error;
       }
-      return await response.json();
+      try { return await response.json(); }
+      catch {
+        const error = new Error('استجاب Cloudflare Worker برمز نجاح لكن الرد ليس JSON صالحاً. تحقق من مسار التحويل وإعداد الـWorker.');
+        error.status = response.status;
+        throw error;
+      }
     } catch (error) {
       if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-      if (controller.signal.aborted) throw new Error('انتهت مهلة الاتصال بـ MangaDex.');
+      if (controller.signal.aborted) throw new Error('انتهت مهلة الاتصال بـCloudflare Worker بعد 20 ثانية. تحقق من حالة الـWorker واتصاله بـMangaDex.');
+      if (error instanceof TypeError) {
+        throw new Error(`تعذر الوصول إلى Cloudflare Worker (${API}). تحقق من اتصال الإنترنت، وحالة الـWorker، وإعدادات CORS.`);
+      }
       throw error;
     } finally {
       clearTimeout(timeout);
       signal?.removeEventListener('abort', abort);
     }
   }
+}
+
+function describeApiError(error, operation) {
+  if (error?.status === 429) return `تجاوزت الطلبات الحد المسموح أثناء ${operation} (HTTP 429). انتظر قليلاً ثم أعد المحاولة.`;
+  if (error?.status === 404) return `لم يعثر الـWorker على المسار المطلوب أثناء ${operation} (HTTP 404). تحقق من أن هذا المسار مدعوم في Worker proxy. التفاصيل: ${error.message}`;
+  if (error?.status >= 500) return `حدث خطأ من الخادم أثناء ${operation} (${error.message}). تحقق من سجلات Cloudflare Worker واتصاله بـMangaDex.`;
+  return error?.message || `تعذر ${operation}. تحقق من اتصال Cloudflare Worker ثم أعد المحاولة.`;
 }
 
 function showHomeMode(mode) {
@@ -163,8 +169,7 @@ async function loadListing() {
   $('sectionTitle').textContent = searching ? `نتائج البحث: ${state.query}` : 'الأكثر شعبية';
   setStatus(homeStatus, searching ? 'جارٍ البحث في MangaDex...' : 'جارٍ تحميل المانغا الأكثر شعبية...');
   const params = {
-    limit: PAGE_SIZE,
-    offset: state.offset,
+    limit: PAGE_SIZE, offset: state.offset,
     'includes[]': ['cover_art'],
     'contentRating[]': ['safe', 'suggestive']
   };
@@ -192,10 +197,7 @@ async function loadListing() {
     loadRatings(items, token);
   } catch (error) {
     if (error.name === 'AbortError' || token !== state.listingToken) return;
-    const message = error.status === 429
-      ? 'طلبات كثيرة إلى MangaDex. انتظر قليلاً ثم أعد المحاولة.'
-      : 'تعذر الاتصال بـ MangaDex. تحقق من اتصالك بالإنترنت ثم أعد المحاولة.';
-    setStatus(homeStatus, message, 'error');
+    setStatus(homeStatus, describeApiError(error, searching ? 'البحث عن المانغا' : 'تحميل قائمة المانغا'), 'error');
     $('retryBtn').hidden = false;
   }
 }
@@ -278,9 +280,7 @@ async function loadRatings(items, token) {
     return;
   }
   try {
-    const params = new URLSearchParams();
-    missing.forEach((id) => params.append(' mangaId'.trim() + '[]', id));
-    const result = await requestJson(`${API}/statistics/manga?${params}`, state.homeController?.signal);
+    const result = await requestJson(makeApiUrl('/statistics/manga', { 'mangaId[]': missing }), state.homeController?.signal);
     Object.entries(result.statistics || {}).forEach(([id, stats]) => {
       const rating = Number(stats?.rating?.average);
       state.ratings.set(id, Number.isFinite(rating) ? rating : null);
@@ -352,14 +352,14 @@ async function openManga(id) {
     }), signal);
     if (token !== state.detailToken) return;
     const manga = result.data;
-    if (!manga) throw new Error('لم يتم العثور على المانغا.');
+    if (!manga) throw new Error('لم يتم العثور على المانغا في رد MangaDex.');
     state.currentManga = manga;
     renderDetails(manga);
     await Promise.all([loadMangaRating(manga.id, signal), loadChapters(manga.id, token, signal)]);
   } catch (error) {
     if (error.name === 'AbortError' || token !== state.detailToken) return;
-    $('detailContent').textContent = 'تعذر تحميل التفاصيل. تحقق من الاتصال ثم أعد المحاولة.';
-    setStatus($('chapterStatus'), 'تعذر تحميل الفصول.', 'error');
+    $('detailContent').textContent = describeApiError(error, 'تحميل تفاصيل المانغا');
+    setStatus($('chapterStatus'), describeApiError(error, 'تحميل الفصول العربية'), 'error');
   }
 }
 
@@ -372,7 +372,9 @@ function renderDetails(manga) {
   img.className = 'detail-cover';
   img.alt = `غلاف ${titleOf(manga)}`;
   img.src = coverOf(manga, 512);
-  img.addEventListener('error', () => { img.replaceWith(Object.assign(document.createElement('div'), { className: 'detail-cover-placeholder', textContent: 'لا يتوفر غلاف' })); }, { once: true });
+  img.addEventListener('error', () => {
+    img.replaceWith(Object.assign(document.createElement('div'), { className: 'detail-cover-placeholder', textContent: 'لا يتوفر غلاف' }));
+  }, { once: true });
   const text = document.createElement('div');
   const heading = document.createElement('h2');
   heading.id = 'detailHeading';
@@ -408,9 +410,7 @@ function renderDetails(manga) {
 
 async function loadMangaRating(id, signal) {
   try {
-    const params = new URLSearchParams();
-    params.append(' mangaId'.trim() + '[]', id);
-    const result = await requestJson(`${API}/statistics/manga?${params}`, signal);
+    const result = await requestJson(makeApiUrl('/statistics/manga', { 'mangaId[]': id }), signal);
     const average = Number(result.statistics?.[id]?.rating?.average);
     state.ratings.set(id, Number.isFinite(average) ? average : null);
     const label = $('detailRating');
@@ -443,11 +443,13 @@ async function loadChapters(id, token, signal, append = false) {
     state.chapters = append ? state.chapters.concat(items) : items;
     state.chapterOffset += items.length;
     renderChapters(append ? items : state.chapters);
-    setStatus($('chapterStatus'), state.chapters.length ? `عدد الفصول العربية: ${state.chapters.length}` : 'لا توجد فصول مترجمة للعربية. قد تتوفر لغات أخرى على MangaDex.', state.chapters.length ? '' : 'empty');
+    setStatus($('chapterStatus'), state.chapters.length
+      ? `عدد الفصول العربية: ${state.chapters.length}`
+      : 'لا توجد فصول مترجمة للعربية. قد تتوفر لاحقاً على MangaDex.', state.chapters.length ? '' : 'empty');
     $('moreChaptersBtn').hidden = items.length < 100;
   } catch (error) {
     if (error.name === 'AbortError' || token !== state.detailToken) return;
-    setStatus($('chapterStatus'), 'تعذر تحميل الفصول. تحقق من اتصالك ثم أعد المحاولة.', 'error');
+    setStatus($('chapterStatus'), describeApiError(error, 'تحميل الفصول العربية'), 'error');
   } finally {
     $('moreChaptersBtn').disabled = false;
   }
@@ -487,12 +489,12 @@ async function openChapter(index) {
   $('nextChapter').disabled = index >= state.chapters.length - 1;
   setStatus($('readerStatus'), 'جارٍ تحميل صفحات الفصل...');
   try {
-    const result = await requestJson(`${API}/at-home/server/${encodeURIComponent(chapter.id)}`, signal);
+    const result = await requestJson(makeApiUrl(`/at-home/server/${encodeURIComponent(chapter.id)}`), signal);
     if (token !== state.readerToken) return;
     const chapterData = result.chapter;
     const useSaver = Array.isArray(chapterData?.dataSaver) && chapterData.dataSaver.length > 0;
     const pages = useSaver ? chapterData.dataSaver : chapterData?.data;
-    if (!result.baseUrl || !chapterData?.hash || !Array.isArray(pages) || !pages.length) throw new Error('لا توجد صفحات متاحة لهذا الفصل.');
+    if (!result.baseUrl || !chapterData?.hash || !Array.isArray(pages) || !pages.length) throw new Error('لا توجد صفحات متاحة لهذا الفصل في رد MangaDex.');
     const folder = useSaver ? 'data-saver' : 'data';
     const fragment = document.createDocumentFragment();
     pages.forEach((filename, pageIndex) => {
@@ -500,6 +502,7 @@ async function openChapter(index) {
       image.loading = pageIndex < 2 ? 'eager' : 'lazy';
       image.decoding = 'async';
       image.alt = `صفحة ${pageIndex + 1} من الفصل ${chapter.attributes?.chapter || '?'}`;
+      // MangaDex at-home returns the image CDN base URL; page files are served directly from that CDN.
       image.src = `${result.baseUrl}/${folder}/${encodeURIComponent(chapterData.hash)}/${encodeURIComponent(filename)}`;
       image.addEventListener('error', () => {
         const note = document.createElement('p');
@@ -514,7 +517,7 @@ async function openChapter(index) {
     $('readerStatus').classList.add('reader-count');
   } catch (error) {
     if (error.name === 'AbortError' || token !== state.readerToken) return;
-    setStatus($('readerStatus'), error.message || 'تعذر تحميل الصفحات. قد يكون الفصل غير متاح.', 'error');
+    setStatus($('readerStatus'), describeApiError(error, 'تحميل صفحات الفصل'), 'error');
   }
 }
 
